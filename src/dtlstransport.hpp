@@ -29,8 +29,19 @@
 #include <functional>
 #include <memory>
 #include <thread>
+#include <utility>
 
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+typedef struct {
+  SSL_CTX* ctx; /* main ssl context */
+  SSL* ssl; /* the SSL* which represents a "connection" */
+  BIO* in_bio; /* we use memory read bios */
+  BIO* out_bio; /* we use memory write bios */
+} krx;
+#else
 #include <gnutls/gnutls.h>
+#endif
 
 namespace rtc {
 
@@ -58,18 +69,28 @@ private:
 
 	const std::shared_ptr<Certificate> mCertificate;
 
+#ifdef USE_OPENSSL
+   krx mSession;
+#else
 	gnutls_session_t mSession;
-	Queue<message_ptr> mIncomingQueue;
+   message_ptr mIncomingMessage;
+#endif
+   enum class message_type { Incoming, Outgoing };
+	Queue<std::pair<message_type, message_ptr>> mMessageQueue;
 	std::atomic<State> mState;
 	std::thread mRecvThread;
 
 	verifier_callback mVerifierCallback;
 	state_callback mStateChangeCallback;
 
+#ifdef USE_OPENSSL
+   static int CertificateCallback(int ok, X509_STORE_CTX* ctx);
+#else
 	static int CertificateCallback(gnutls_session_t session);
 	static ssize_t WriteCallback(gnutls_transport_ptr_t ptr, const void *data, size_t len);
 	static ssize_t ReadCallback(gnutls_transport_ptr_t ptr, void *data, size_t maxlen);
 	static int TimeoutCallback(gnutls_transport_ptr_t ptr, unsigned int ms);
+ #endif
 };
 
 } // namespace rtc

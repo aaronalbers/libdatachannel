@@ -24,13 +24,18 @@
 #include <exception>
 #include <iostream>
 
+#ifdef USE_OPENSSL
+#include <openssl/ssl.h>
+#else
 #include <gnutls/dtls.h>
+#endif
 
 using std::shared_ptr;
 using std::string;
 
 namespace {
-
+#ifdef USE_OPENSSL
+#else
 static bool check_gnutls(int ret, const string &message = "GnuTLS error") {
 	if (ret < 0) {
 		if (!gnutls_error_is_fatal(ret))
@@ -39,6 +44,7 @@ static bool check_gnutls(int ret, const string &message = "GnuTLS error") {
 	}
 	return true;
 }
+#endif
 
 } // namespace
 
@@ -52,6 +58,8 @@ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, shared_ptr<Certific
     : Transport(lower), mCertificate(certificate), mState(State::Disconnected),
       mVerifierCallback(std::move(verifierCallback)),
       mStateChangeCallback(std::move(stateChangeCallback)) {
+#ifdef USE_OPENSSL
+#else
 	gnutls_certificate_set_verify_function(mCertificate->credentials(), CertificateCallback);
 
 	bool active = lower->role() == Description::Role::Active;
@@ -71,17 +79,21 @@ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, shared_ptr<Certific
 
 	check_gnutls(
 	    gnutls_credentials_set(mSession, GNUTLS_CRD_CERTIFICATE, mCertificate->credentials()));
+#endif
 
 	mRecvThread = std::thread(&DtlsTransport::runRecvLoop, this);
 }
 
 DtlsTransport::~DtlsTransport() {
-	mIncomingQueue.stop();
+	mMessageQueue.stop();
 	if (mRecvThread.joinable())
 		mRecvThread.join();
 
+#ifdef USE_OPENSSL
+#else
 	gnutls_bye(mSession, GNUTLS_SHUT_RDWR);
 	gnutls_deinit(mSession);
+#endif
 }
 
 DtlsTransport::State DtlsTransport::state() const { return mState; }
@@ -89,16 +101,28 @@ DtlsTransport::State DtlsTransport::state() const { return mState; }
 bool DtlsTransport::send(message_ptr message) {
 	if (!message)
 		return false;
-
+  
+  std::cout << "message outgoing" << std::endl;
+  
+   mMessageQueue.push({message_type::Outgoing, message});
+   
+   return true;
+#if 0
+#ifdef USE_OPENSSL
+  // SSL_write()
+  // BIO_read()
+#else
 	while (true) {
 		ssize_t ret = gnutls_record_send(mSession, message->data(), message->size());
 		if (check_gnutls(ret)) {
 			return ret > 0;
 		}
 	}
+#endif
+#endif
 }
 
-void DtlsTransport::incoming(message_ptr message) { mIncomingQueue.push(message); }
+void DtlsTransport::incoming(message_ptr message) { mMessageQueue.push({message_type::Incoming, message}); }
 
 void DtlsTransport::changeState(State state) {
 	mState = state;
@@ -109,8 +133,11 @@ void DtlsTransport::runRecvLoop() {
 	try {
 		changeState(State::Connecting);
 
-		while (!check_gnutls(gnutls_handshake(mSession), "TLS handshake failed")) {
-		}
+#ifdef USE_OPENSSL
+      // SSL_do_handshake()
+#else
+		while (!check_gnutls(gnutls_handshake(mSession), "TLS handshake failed"));
+#endif
 	} catch (const std::exception &e) {
 		std::cerr << "DTLS handshake: " << e.what() << std::endl;
 		changeState(State::Failed);
@@ -124,15 +151,33 @@ void DtlsTransport::runRecvLoop() {
 		char buffer[bufferSize];
 
 		while (true) {
-			ssize_t ret = gnutls_record_recv(mSession, buffer, bufferSize);
-			if (check_gnutls(ret)) {
-				if (ret == 0) {
-					// Closed
-					break;
-				}
-				auto *b = reinterpret_cast<byte *>(buffer);
-				recv(make_message(b, b + ret));
-			}
+        auto next = mMessageQueue.pop();
+        if (!next) break;
+        
+        auto message_pair = *next;
+        auto message = message_pair.second;
+#ifdef USE_OPENSSL
+         // BIO_write()
+         // SSL_read()
+#else
+         if (message_pair.first == message_type::Incoming) {
+            mIncomingMessage = message;
+            ssize_t ret = gnutls_record_recv(mSession, buffer, bufferSize);
+            if (check_gnutls(ret)) {
+               if (ret == 0) {
+                  // Closed
+                  break;
+               }
+               auto *b = reinterpret_cast<byte *>(buffer);
+               recv(make_message(b, b + ret));
+            }
+         } else if (message_pair.first == message_type::Outgoing) {
+            while (true) {
+               ssize_t ret = gnutls_record_send(mSession, message->data(), message->size());
+               if (check_gnutls(ret)) break;
+            }
+         }
+#endif
 		}
 
 	} catch (const std::exception &e) {
@@ -143,6 +188,18 @@ void DtlsTransport::runRecvLoop() {
 	recv(nullptr);
 }
 
+#ifdef USE_OPENSSL
+static int DtlsTransport_index = SSL_get_ex_new_index(0, (void*)("DtlsTransport index"), NULL, NULL, NULL);
+int DtlsTransport::CertificateCallback(int ok, X509_STORE_CTX* ctx) {
+   SSL* ssl = static_cast<SSL*>(X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx()));
+   DtlsTransport *t = static_cast<DtlsTransport*>(SSL_get_ex_data(ssl, DtlsTransport_index));
+
+   string fingerprint = make_fingerprint(X509_STORE_CTX_get_current_cert(ctx));
+
+   bool success = ok && t->mVerifierCallback(fingerprint);
+   return success ? 1 : 0;
+}
+#else
 int DtlsTransport::CertificateCallback(gnutls_session_t session) {
 	DtlsTransport *t = static_cast<DtlsTransport *>(gnutls_session_get_ptr(session));
 
@@ -183,8 +240,7 @@ ssize_t DtlsTransport::WriteCallback(gnutls_transport_ptr_t ptr, const void *dat
 
 ssize_t DtlsTransport::ReadCallback(gnutls_transport_ptr_t ptr, void *data, size_t maxlen) {
 	DtlsTransport *t = static_cast<DtlsTransport *>(ptr);
-	auto next = t->mIncomingQueue.pop();
-	auto message = next ? *next : nullptr;
+	auto message = t->mIncomingMessage;
 	if (!message) {
 		// Closed
 		gnutls_transport_set_errno(t->mSession, 0);
@@ -200,5 +256,6 @@ ssize_t DtlsTransport::ReadCallback(gnutls_transport_ptr_t ptr, void *data, size
 int DtlsTransport::TimeoutCallback(gnutls_transport_ptr_t ptr, unsigned int ms) {
 	return 1; // So ReadCallback is called
 }
+#endif
 
 } // namespace rtc

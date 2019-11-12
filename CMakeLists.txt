@@ -44,11 +44,15 @@ else()
   target_compile_options(usrsctp-static PRIVATE -Wno-error=address-of-packed-member -Wno-error=format-truncation)
 endif()
 
-
-find_package(GnuTLS REQUIRED)
+if (OPENSSL_ROOT_DIR)
+  add_definitions(-DUSE_OPENSSL)
+  find_package(OpenSSL REQUIRED)
+else()
+  find_package(GnuTLS REQUIRED)
+endif()
 find_package(LibNice REQUIRED)
 
-if(NOT TARGET GnuTLS::GnuTLS)
+if (NOT TARGET GnuTLS::GnuTLS AND NOT OPENSSL_ROOT_DIR)
     add_library(GnuTLS::GnuTLS UNKNOWN IMPORTED)
     set_target_properties(GnuTLS::GnuTLS PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${GNUTLS_INCLUDE_DIRS}"
@@ -65,7 +69,13 @@ set_target_properties(datachannel PROPERTIES
 target_include_directories(datachannel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(datachannel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/rtc)
 target_include_directories(datachannel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(datachannel usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
+
+if (OPENSSL_ROOT_DIR)
+  target_include_directories(datachannel PRIVATE ${OPENSSL_ROOT_DIR}/include)
+  target_link_libraries(datachannel usrsctp-static OpenSSL::SSL LibNice::LibNice)
+else()
+  target_link_libraries(datachannel usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
+endif()
 
 add_library(datachannel-static STATIC EXCLUDE_FROM_ALL ${LIBDATACHANNEL_SOURCES})
 set_target_properties(datachannel-static PROPERTIES
@@ -75,7 +85,13 @@ set_target_properties(datachannel-static PROPERTIES
 target_include_directories(datachannel-static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(datachannel-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/rtc)
 target_include_directories(datachannel-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(datachannel-static usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
+
+if (OPENSSL_ROOT_DIR)
+  target_include_directories(datachannel-static PRIVATE ${OPENSSL_ROOT_DIR}/include)
+  target_link_libraries(datachannel-static usrsctp-static OpenSSL::SSL LibNice::LibNice)
+else()
+  target_link_libraries(datachannel-static usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
+endif()
 
 add_library(LibDataChannel::LibDataChannel ALIAS datachannel)
 add_library(LibDataChannel::LibDataChannelStatic ALIAS datachannel-static)

@@ -21,24 +21,40 @@
 
 #include "include.hpp"
 
+#ifdef USE_OPENSSL
+#include <openssl/x509.h>
+#else
 #include <gnutls/x509.h>
+#endif
 
 namespace rtc {
 
+#ifdef USE_OPENSSL
+using x509_crt_t = X509*;
+using x509_privkey_t = EVP_PKEY*;
+#else
+using x509_crt_t = gnutls_x509_crt_t;
+using x509_privkey_t = gnutls_x509_privkey_t;
+#endif
+
 class Certificate {
 public:
-	Certificate(gnutls_x509_crt_t crt, gnutls_x509_privkey_t privkey);
+   Certificate(x509_crt_t crt, x509_privkey_t privkey);
 	Certificate(string crt_pem, string key_pem);
 
 	string fingerprint() const;
-	gnutls_certificate_credentials_t credentials() const;
+#ifndef USE_OPENSSL
+   gnutls_certificate_credentials_t credentials() const;
+#endif
 
 private:
+#ifndef USE_OPENSSL
 	std::shared_ptr<gnutls_certificate_credentials_t> mCredentials;
+#endif
 	string mFingerprint;
 };
 
-string make_fingerprint(gnutls_x509_crt_t crt);
+string make_fingerprint(x509_crt_t crt);
 std::shared_ptr<Certificate> make_certificate(const string &commonName);
 
 } // namespace rtc
