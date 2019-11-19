@@ -9,7 +9,6 @@ set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
 set(LIBDATACHANNEL_SOURCES
 	candidate.cpp
-	certificate.cpp
 	channel.cpp
 	configuration.cpp
 	datachannel.cpp
@@ -64,6 +63,7 @@ set_target_properties(datachannel PROPERTIES
 
 target_include_directories(datachannel PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(datachannel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/rtc)
+target_include_directories(datachannel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/jawtls)
 target_include_directories(datachannel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(datachannel usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
 
@@ -74,6 +74,7 @@ set_target_properties(datachannel-static PROPERTIES
 
 target_include_directories(datachannel-static PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(datachannel-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/rtc)
+target_include_directories(datachannel-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/jawtls)
 target_include_directories(datachannel-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(datachannel-static usrsctp-static GnuTLS::GnuTLS LibNice::LibNice)
 

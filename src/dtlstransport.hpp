@@ -19,7 +19,7 @@
 #ifndef RTC_DTLS_TRANSPORT_H
 #define RTC_DTLS_TRANSPORT_H
 
-#include "certificate.hpp"
+#include "session.hpp"
 #include "include.hpp"
 #include "peerconnection.hpp"
 #include "queue.hpp"
@@ -29,8 +29,6 @@
 #include <functional>
 #include <memory>
 #include <thread>
-
-#include <gnutls/gnutls.h>
 
 namespace rtc {
 
@@ -42,8 +40,10 @@ public:
 
 	using verifier_callback = std::function<bool(const std::string &fingerprint)>;
 	using state_callback = std::function<void(State state)>;
+  using Certificate = jawtls::certificate;
+  using Session = jawtls::session;
 
-	DtlsTransport(std::shared_ptr<IceTransport> lower, std::shared_ptr<Certificate> certificate,
+	DtlsTransport(std::shared_ptr<IceTransport> lower, Certificate certificate,
 	              verifier_callback verifierCallback, state_callback stateChangeCallback);
 	~DtlsTransport();
 
@@ -52,24 +52,20 @@ public:
 	bool send(message_ptr message);
 
 private:
+  using Task = std::function<void()>;
 	void incoming(message_ptr message);
 	void changeState(State state);
-	void runRecvLoop();
+  void queueSerialTask(Task task);
+	void runTaskLoop();
 
-	const std::shared_ptr<Certificate> mCertificate;
-
-	gnutls_session_t mSession;
-	Queue<message_ptr> mIncomingQueue;
+  Queue<Task> mTaskQueue;
+	Session mSession;
 	std::atomic<State> mState;
-	std::thread mRecvThread;
-
-	verifier_callback mVerifierCallback;
+	std::thread mTaskThread;
+  
 	state_callback mStateChangeCallback;
-
-	static int CertificateCallback(gnutls_session_t session);
-	static ssize_t WriteCallback(gnutls_transport_ptr_t ptr, const void *data, size_t len);
-	static ssize_t ReadCallback(gnutls_transport_ptr_t ptr, void *data, size_t maxlen);
-	static int TimeoutCallback(gnutls_transport_ptr_t ptr, unsigned int ms);
+  void onUnencrypted(Session::unencrypted_payload payload);
+  void sendEncrypted(Session::encrypted_payload payload);
 };
 
 } // namespace rtc

@@ -20,6 +20,7 @@
 #define RTC_PEER_CONNECTION_H
 
 #include "candidate.hpp"
+#include "jawtls/certificate.hpp"
 #include "configuration.hpp"
 #include "datachannel.hpp"
 #include "description.hpp"
@@ -34,7 +35,7 @@
 
 namespace rtc {
 
-class Certificate;
+using Certificate = jawtls::certificate;
 class IceTransport;
 class DtlsTransport;
 class SctpTransport;
@@ -91,12 +92,12 @@ private:
 
 	void processLocalDescription(Description description);
 	void processLocalCandidate(Candidate candidate);
-	void triggerDataChannel(std::shared_ptr<DataChannel> dataChannel);
+	void triggerDataChannel(std::weak_ptr<DataChannel> dataChannel);
 	void changeState(State state);
 	void changeGatheringState(GatheringState state);
 
 	const Configuration mConfig;
-	const std::shared_ptr<Certificate> mCertificate;
+	const Certificate mCertificate;
 
 	std::optional<Description> mLocalDescription;
 	std::optional<Description> mRemoteDescription;

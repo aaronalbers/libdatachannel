@@ -34,7 +34,10 @@ using std::shared_ptr;
 PeerConnection::PeerConnection() : PeerConnection(Configuration()) {}
 
 PeerConnection::PeerConnection(const Configuration &config)
-    : mConfig(config), mCertificate(make_certificate("libdatachannel")), mState(State::New) {}
+: mConfig{config}
+, mCertificate{Certificate::make_self_signed("libdatachannel")}
+, mState{State::New}
+{}
 
 PeerConnection::~PeerConnection() {}
 
@@ -227,7 +230,7 @@ void PeerConnection::forwardMessage(message_ptr message) {
 		if (message->type == Message::Control && *message->data() == dataChannelOpenMessage &&
 		    message->stream % 2 == remoteParity) {
 			channel = std::make_shared<DataChannel>(message->stream, mSctpTransport);
-			channel->onOpen(std::bind(&PeerConnection::triggerDataChannel, this, channel));
+			channel->onOpen(std::bind(&PeerConnection::triggerDataChannel, this, std::weak_ptr<DataChannel>{channel}));
 			mDataChannels.insert(std::make_pair(message->stream, channel));
 		} else {
 			// Invalid, close the DataChannel by resetting the stream
@@ -264,7 +267,7 @@ void PeerConnection::closeDataChannels() {
 void PeerConnection::processLocalDescription(Description description) {
 	auto remoteSctpPort = mRemoteDescription ? mRemoteDescription->sctpPort() : nullopt;
 
-	description.setFingerprint(mCertificate->fingerprint());
+	description.setFingerprint(Certificate::make_fingerprint(mCertificate));
 	description.setSctpPort(remoteSctpPort.value_or(DEFAULT_SCTP_PORT));
 	mLocalDescription.emplace(std::move(description));
 
@@ -282,7 +285,9 @@ void PeerConnection::processLocalCandidate(Candidate candidate) {
 		mLocalCandidateCallback(candidate);
 }
 
-void PeerConnection::triggerDataChannel(std::shared_ptr<DataChannel> dataChannel) {
+void PeerConnection::triggerDataChannel(std::weak_ptr<DataChannel> wdataChannel) {
+  auto dataChannel = wdataChannel.lock();
+  if (!dataChannel) return;
 	if (mDataChannelCallback)
 		mDataChannelCallback(dataChannel);
 }
